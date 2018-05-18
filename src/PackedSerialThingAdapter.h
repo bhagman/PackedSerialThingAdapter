@@ -8,11 +8,11 @@
 #pragma once
 
 #include <Arduino.h>
-#include "Thing.h"
-#include "PackedSerial.h"
+#include <Thing.h>
+#include <PackedSerial.h>
 
 // TODO: We fix the bitrate for now -- see @todo below for more info
-#define THINGBITRATE 57600
+#define THINGBITRATE 115200
 
 enum ThingAdapterRequest
 {
