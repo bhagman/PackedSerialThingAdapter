@@ -23,8 +23,8 @@ enum ThingAdapterRequest
   DEFINEACTIONBYIDX   = 0x04,
   SETPROPERTY         = 0x05,
   GETPROPERTY         = 0x06,
-  CONNECT             = 0xfe, // Enable Thing communication with host
-  DISCONNECT          = 0xff
+  PAIR                = 0xfd, // Enable Thing communication with host
+  UNPAIR              = 0xfe
 };
 
 enum ThingAdapterResponse
@@ -35,6 +35,8 @@ enum ThingAdapterResponse
   DETAILEVENTBYIDX    = 0x03,
   DETAILACTIONBYIDX   = 0x04,
   PROPERTYSTATUS      = 0x05,
+  PAIRED              = 0xfd,
+  UNPAIRED            = 0xfe,
   ERROR               = 0xff
 };
 
@@ -44,7 +46,7 @@ enum PackedSerialThingAdapterError
   ERROR_PROPERTYIDX_OUTOFRANGE = 0x02,
   ERROR_THING_NULLPTR          = 0x03,
   ERROR_PROPERTY_NULLPTR       = 0x04,
-  ERROR_NOT_CONNECTED          = 0xff
+  ERROR_NOT_PAIRED             = 0xff
 };
 
 // PackedSerialThingAdapter - maintains connection between devices and Gateway.
@@ -61,49 +63,35 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
 
     uint8_t preparePropertyStatusMessage(uint8_t *messageBuffer, uint8_t index, uint8_t thingIdx, uint8_t propertyIdx)
     {
-      if (thingIdx < this->thingCount)
+      ThingDevice *thing = this->getDevice(thingIdx);
+
+      if (thing != nullptr)
       {
-        ThingDevice *thing = this->getDevice(thingIdx);
+        ThingProperty *property = thing->getProperty(propertyIdx);
 
-        if (thing != nullptr)
+        if (property != nullptr)
         {
-          if (propertyIdx < thing->propertyCount)
-          {
-            ThingProperty *property = thing->getProperty(propertyIdx);
+          index = SimplePack::writeUInt8(messageBuffer, ThingAdapterResponse::PROPERTYSTATUS, index);
+          index = SimplePack::writeUInt8(messageBuffer, thingIdx, index);
+          index = SimplePack::writeUInt8(messageBuffer, propertyIdx, index);
 
-            if (property != nullptr)
-            {
-              index = SimplePack::writeUInt8(messageBuffer, ThingAdapterResponse::PROPERTYSTATUS, index);
-              index = SimplePack::writeUInt8(messageBuffer, thingIdx, index);
-              index = SimplePack::writeUInt8(messageBuffer, propertyIdx, index);
-
-              switch ((ThingPropertyDatatype) property->type)
-              {
-                case BOOLEAN:
-                  index = SimplePack::writeUInt8(messageBuffer, ((ThingPropertyBoolean *)property)->getValue(), index);
-                  break;
-                case NUMBER:
-                  index = SimplePack::writeInt32BE(messageBuffer, ((ThingPropertyNumber *)property)->getValue(), index);
-                  break;
-                case STRING:
-                  index = SimplePack::writeString(messageBuffer, ((ThingPropertyString *)property)->getValue(), index);
-                  break;
-                default:
-                  // TODO: invalid datatype
-                  break;
-              }
-              
-              return index;
-            }
-            else
-            {
-              return 0;
-            }
-          }
-          else
+          switch ((ThingPropertyDatatype) property->type)
           {
-            return 0;
+            case BOOLEAN:
+              index = SimplePack::writeUInt8(messageBuffer, ((ThingPropertyBoolean *)property)->getValue(), index);
+              break;
+            case NUMBER:
+              index = SimplePack::writeInt32BE(messageBuffer, ((ThingPropertyNumber *)property)->getValue(), index);
+              break;
+            case STRING:
+              index = SimplePack::writeString(messageBuffer, ((ThingPropertyString *)property)->getValue(), index);
+              break;
+            default:
+              // TODO: invalid datatype
+              break;
           }
+
+          return index;
         }
         else
         {
@@ -133,11 +121,63 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
       // Interpret our request
       switch ((ThingAdapterRequest) request)
       {
-        case CONNECT:
-          this->connected = true;
-          break;
-        case DISCONNECT:
-          this->connected = false;
+        case PAIR:
+        case UNPAIR:
+          // Pair/Unpair incoming parameters:
+          //  uint8 - thingIdx
+          //
+          // Pair/Unpair response:
+          //  uint8  - PAIRED/UNPAIRED
+          //  uint8  - thingIdx
+
+          // Get thingIdx from request
+          thingIdx = SimplePack::readUInt8(data, inputIndex);
+          inputIndex += 1;
+
+          if (thingIdx < this->thingCount)
+          {
+            ThingDevice *thing = this->getDevice(thingIdx);
+
+            if (thing != nullptr)
+            {
+              uint8_t responseValue;
+
+              if (((ThingAdapterRequest) request) == ThingAdapterRequest::PAIR)
+              {
+                thing->paired = true;
+                responseValue = ThingAdapterResponse::PAIRED;
+              }
+              else
+              {
+                thing->paired = false;
+                responseValue = ThingAdapterResponse::UNPAIRED;
+              }
+
+              // Now prepare response
+              // Response type
+              index = SimplePack::writeUInt8(resp, responseValue, index);
+              // thingIdx
+              index = SimplePack::writeUInt8(resp, thingIdx, index);
+
+              formedResponse = true;
+            }
+            else
+            {
+              // Error while getting the device - return an error
+              index = SimplePack::writeUInt8(resp, ThingAdapterResponse::ERROR, index);
+              index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_THING_NULLPTR, index);
+
+              formedResponse = true;
+            }
+          }
+          else
+          {
+            // thingIdx out of range
+            index = SimplePack::writeUInt8(resp, ThingAdapterResponse::ERROR, index);
+            index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_THINGIDX_OUTOFRANGE, index);
+
+            formedResponse = true;
+          }
           break;
         case DEFINEADAPTER:
           // DefineAdapter incoming parameters:
@@ -149,7 +189,7 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
           //  string - adapterDescription
           //  uint8  - thingCount
 
-          index = SimplePack::writeUInt8(resp, ThingAdapterResponse::DETAILADAPTER, index); // 'adapter' cmd
+          index = SimplePack::writeUInt8(resp, ThingAdapterResponse::DETAILADAPTER, index);
           index = SimplePack::writeString(resp, this->name, index);
           index = SimplePack::writeString(resp, this->description, index);
           index = SimplePack::writeUInt8(resp, this->thingCount, index);
@@ -178,15 +218,7 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
           {
             ThingDevice *thing = this->getDevice(thingIdx);
 
-            if (thing == nullptr)
-            {
-              // Error while getting the device - return an error
-              index = SimplePack::writeUInt8(resp, ThingAdapterResponse::ERROR, index);
-              index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_THING_NULLPTR, index);
-
-              formedResponse = true;
-            }
-            else
+            if (thing != nullptr)
             {
               // Now prepare response
               // Response type
@@ -199,6 +231,14 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
               index = SimplePack::writeUInt8(resp, thing->propertyCount, index);
               index = SimplePack::writeUInt8(resp, thing->eventCount, index);
               index = SimplePack::writeUInt8(resp, thing->actionCount, index);
+
+              formedResponse = true;
+            }
+            else
+            {
+              // Error while getting the device - return an error
+              index = SimplePack::writeUInt8(resp, ThingAdapterResponse::ERROR, index);
+              index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_THING_NULLPTR, index);
 
               formedResponse = true;
             }
@@ -333,20 +373,20 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
           //  uint8 - propertyIdx
           //  x     - value
 
-          if (this->connected)
+          // Get thingIdx from request
+          thingIdx = SimplePack::readUInt8(data, inputIndex);
+          inputIndex += 1;
+          // Get propertyIdx from request
+          propertyIdx = SimplePack::readUInt8(data, inputIndex);
+          inputIndex += 1;
+
+          if (thingIdx < this->thingCount)
           {
-            // Get thingIdx from request
-            thingIdx = SimplePack::readUInt8(data, inputIndex);
-            inputIndex += 1;
-            // Get propertyIdx from request
-            propertyIdx = SimplePack::readUInt8(data, inputIndex);
-            inputIndex += 1;
+            ThingDevice *thing = this->getDevice(thingIdx);
 
-            if (thingIdx < this->thingCount)
+            if (thing != nullptr)
             {
-              ThingDevice *thing = this->getDevice(thingIdx);
-
-              if (thing != nullptr)
+              if (thing->paired)
               {
                 if (propertyIdx < thing->propertyCount)
                 {
@@ -428,33 +468,33 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
               }
               else
               {
-                // Error while getting the device - return an error
+                // Not paired
                 index = SimplePack::writeUInt8(resp, ThingAdapterResponse::ERROR, index);
-                index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_THING_NULLPTR, index);
+                index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_NOT_PAIRED, index);
 
                 formedResponse = true;
               }
             }
             else
             {
-              // thingIdx out of range
+              // Error while getting the device - return an error
               index = SimplePack::writeUInt8(resp, ThingAdapterResponse::ERROR, index);
-              index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_THINGIDX_OUTOFRANGE, index);
+              index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_THING_NULLPTR, index);
 
               formedResponse = true;
             }
-            break;
-          default:
-            break;
-        }
-        else
-        {
-          // Not connected
-          index = SimplePack::writeUInt8(resp, ThingAdapterResponse::ERROR, index);
-          index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_NOT_CONNECTED, index);
+          }
+          else
+          {
+            // thingIdx out of range
+            index = SimplePack::writeUInt8(resp, ThingAdapterResponse::ERROR, index);
+            index = SimplePack::writeUInt8(resp, PackedSerialThingAdapterError::ERROR_THINGIDX_OUTOFRANGE, index);
 
-          formedResponse = true;
-        }
+            formedResponse = true;
+          }
+          break;
+        default:
+          break;
       }
 
       if (formedResponse)
@@ -496,9 +536,9 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
       ThingDevice *thing = this->firstDevice;
       uint8_t thingIdx = 0;
 
-      if (this->connected)
+      while (thing != nullptr)
       {
-        while (thing != nullptr)
+        if (thing->paired)
         {
           ThingProperty *property = thing->firstProperty;
           uint8_t propertyIdx = 0;
@@ -519,10 +559,10 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
             property = property->next;
             propertyIdx++;
           }
-
-          thing = thing->next;
-          thingIdx++;
         }
+
+        thing = thing->next;
+        thingIdx++;
       }
     }
 
