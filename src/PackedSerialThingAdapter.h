@@ -421,6 +421,10 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
                           // TODO: invalid datatype
                           break;
                       }
+
+                      // Since we fall through here, we need to invalidate the changed signal, so
+                      // update() doesn't pick it up again later.
+                      property->changed = false;
                     }
 
                     // Next (or if GetProperty)... build and send PropertyStatus
@@ -620,7 +624,7 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
 || |
 || | Set bitrate to common value on startup, then allow adapter to announce/negotiate speed change.
 || | (e.g. .begin(1000000) -- would allow adapter to switch up to 1000000 bps after initial communication)
-|| | Bitrate is currently fixed to 57600
+|| | Bitrate is currently fixed to 115200.
 || #
 ||
 || @license Please see LICENSE.
