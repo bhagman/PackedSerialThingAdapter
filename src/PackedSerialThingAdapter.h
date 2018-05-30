@@ -14,6 +14,7 @@
 // TODO: We fix the bitrate for now -- see @todo below for more info
 #define THINGBITRATE 115200
 
+
 enum ThingAdapterRequest
 {
   DEFINEADAPTER       = 0x00,
@@ -26,6 +27,7 @@ enum ThingAdapterRequest
   PAIR                = 0xfd, // Enable Thing communication with host
   UNPAIR              = 0xfe
 };
+
 
 enum ThingAdapterResponse
 {
@@ -40,6 +42,7 @@ enum ThingAdapterResponse
   ERROR               = 0xff
 };
 
+
 enum PackedSerialThingAdapterError
 {
   ERROR_THINGIDX_OUTOFRANGE    = 0x01,
@@ -49,17 +52,19 @@ enum PackedSerialThingAdapterError
   ERROR_NOT_PAIRED             = 0xff
 };
 
+
 // PackedSerialThingAdapter - maintains connection between devices and Gateway.
 class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
 {
   public:
     // constructor
-    // NOTES: likely don't need ID and Description -- this is set at the gateway end of the adapter
+    // NOTES: adapterName is the name used for the board on the gateway.
     PackedSerialThingAdapter(const char *adapterName, const char *adapterDescription)
       : ThingAdapter(adapterName, adapterDescription),
         connected(false)
     {
     }
+
 
     uint8_t preparePropertyStatusMessage(uint8_t *messageBuffer, uint8_t index, uint8_t thingIdx, uint8_t propertyIdx)
     {
@@ -103,6 +108,7 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
         return 0;
       }
     }
+
 
     void onPacketReceive(const uint8_t *data, size_t len)
     {
@@ -428,27 +434,6 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
                     }
 
                     // Next (or if GetProperty)... build and send PropertyStatus
-                    /*
-                    // this section moved to preparePropertyStatusMessage()
-                    index = SimplePack::writeUInt8(resp, ThingAdapterResponse::PROPERTYSTATUS, index);
-                    index = SimplePack::writeUInt8(resp, thingIdx, index);
-                    index = SimplePack::writeUInt8(resp, propertyIdx, index);
-                    switch ((ThingPropertyDatatype) property->type)
-                    {
-                      case BOOLEAN:
-                        index = SimplePack::writeUInt8(resp, ((ThingPropertyBoolean *)property)->getValue(), index);
-                        break;
-                      case NUMBER:
-                        index = SimplePack::writeInt32BE(resp, ((ThingPropertyNumber *)property)->getValue(), index);
-                        break;
-                      case STRING:
-                        index = SimplePack::writeString(resp, ((ThingPropertyString *)property)->getValue(), index);
-                        break;
-                      default:
-                        // TODO: invalid datatype
-                        break;
-                    }
-                    */
                     index = preparePropertyStatusMessage(resp, index, thingIdx, propertyIdx);
                     formedResponse = true;
                   }
@@ -504,6 +489,7 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
       if (formedResponse)
         serialConn.send(resp, index);
     }
+
 
     void begin(Stream &stream)
     {
@@ -570,6 +556,7 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
       }
     }
 
+
   private:
     PackedSerial serialConn;
     boolean connected;
@@ -589,22 +576,26 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
 || | PackedSerialThingAdapter Library
 || |
 || | Requests supported:
-|| |  DEFINEADAPTER
-|| |  DEFINETHINGBYIDX
-|| |  DEFINEPROPERTYBYIDX
-|| |  DEFINEEVENTBYIDX
-|| |  DEFINEACTIONBYIDX
-|| |  SETPROPERTY
-|| |  GETPROPERTY
+|| |  DEFINEADAPTER       = 0x00,
+|| |  DEFINETHINGBYIDX    = 0x01,
+|| |  DEFINEPROPERTYBYIDX = 0x02,
+|| |  DEFINEEVENTBYIDX    = 0x03,
+|| |  DEFINEACTIONBYIDX   = 0x04,
+|| |  SETPROPERTY         = 0x05,
+|| |  GETPROPERTY         = 0x06,
+|| |  PAIR                = 0xfd,
+|| |  UNPAIR              = 0xfe
 || |
 || | Responses:
-|| |  DETAILADAPTER
-|| |  DETAILTHINGBYIDX
-|| |  DETAILPROPERTYBYIDX
-|| |  DETAILEVENTBYIDX
-|| |  DETAILACTIONBYIDX
-|| |  PROPERTYSTATUS
-|| |  ERROR
+|| |  DETAILADAPTER       = 0x00,
+|| |  DETAILTHINGBYIDX    = 0x01,
+|| |  DETAILPROPERTYBYIDX = 0x02,
+|| |  DETAILEVENTBYIDX    = 0x03,
+|| |  DETAILACTIONBYIDX   = 0x04,
+|| |  PROPERTYSTATUS      = 0x05,
+|| |  PAIRED              = 0xfd,
+|| |  UNPAIRED            = 0xfe,
+|| |  ERROR               = 0xff
 || |
 || #
 ||
