@@ -502,7 +502,7 @@ class PackedSerialThingAdapter : public ThingAdapter, public IPacketReceiver
     }
 
 
-    void begin(uint32_t bps)
+    void begin(uint32_t bps = THINGBITRATE)
     {
       Serial.begin(bps);
       #if ARDUINO >= 100
